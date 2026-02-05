@@ -750,8 +750,11 @@ defmodule LangChain.ChatModels.ChatGoogleAI do
     tool_calls_from_parts =
       parts
       |> filter_parts_for_types(["functionCall"])
-      |> Enum.map(fn part ->
-        do_process_response(model, part, nil)
+      |> Enum.with_index()
+      |> Enum.map(fn {part, idx} ->
+        part
+        |> Map.put("index", idx)
+        |> then(&do_process_response(model, &1, nil))
       end)
 
     tool_result_from_parts =
@@ -804,7 +807,16 @@ defmodule LangChain.ChatModels.ChatGoogleAI do
       parts
       |> filter_parts_for_types(["functionCall"])
       |> Enum.map(fn part ->
-        do_process_response(model, part, nil)
+        # Generate a unique index based on the function name to prevent
+        # parallel tool calls with the same batch-local index from merging.
+        # Using phash2 ensures same name always gets same index (for streaming)
+        # while different names get different indices.
+        name = get_in(part, ["functionCall", "name"])
+        index = :erlang.phash2(name)
+
+        part
+        |> Map.put("index", index)
+        |> then(&do_process_response(model, &1, nil))
       end)
 
     %{

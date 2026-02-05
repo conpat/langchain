@@ -787,6 +787,69 @@ defmodule ChatModels.ChatGoogleAITest do
                "totalTokenCount" => 11
              }
     end
+
+    test "assigns unique indices to parallel tool calls to prevent merging", %{model: model} do
+      # This tests the fix for the bug where parallel tool calls with the same
+      # batch-local index (both 0) would incorrectly merge during streaming.
+      # The fix uses phash2 of the function name to generate unique indices.
+
+      # First streaming chunk with first tool call
+      response1 = %{
+        "candidates" => [
+          %{
+            "content" => %{
+              "role" => "model",
+              "parts" => [
+                %{
+                  "functionCall" => %{
+                    "args" => %{},
+                    "name" => "insurances_context"
+                  }
+                }
+              ]
+            },
+            "index" => 0
+          }
+        ]
+      }
+
+      # Second streaming chunk with second tool call
+      response2 = %{
+        "candidates" => [
+          %{
+            "content" => %{
+              "role" => "model",
+              "parts" => [
+                %{
+                  "functionCall" => %{
+                    "args" => %{},
+                    "name" => "claims_context"
+                  }
+                }
+              ]
+            },
+            "index" => 0
+          }
+        ]
+      }
+
+      [delta1] = ChatGoogleAI.do_process_response(model, response1, MessageDelta)
+      [delta2] = ChatGoogleAI.do_process_response(model, response2, MessageDelta)
+
+      # The tool calls should have different indices based on their names
+      [tool_call1] = delta1.tool_calls
+      [tool_call2] = delta2.tool_calls
+
+      assert tool_call1.name == "insurances_context"
+      assert tool_call2.name == "claims_context"
+
+      # Indices should be different (based on phash2 of name)
+      assert tool_call1.index != tool_call2.index
+
+      # Verify indices are deterministic (same name = same index)
+      assert tool_call1.index == :erlang.phash2("insurances_context")
+      assert tool_call2.index == :erlang.phash2("claims_context")
+    end
   end
 
   describe "filter_parts_for_types/2" do
