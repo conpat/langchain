@@ -310,15 +310,6 @@ defmodule LangChain.ChatModels.ChatGoogleAI do
     }
   end
 
-  def for_api(%Message{content: content} = message) when is_list(content) do
-    %{
-      "role" => map_role(message.role),
-      "parts" =>
-        Enum.map(content, &for_api/1)
-        |> List.flatten()
-    }
-  end
-
   def for_api(%ContentPart{type: :text} = part) do
     %{"text" => part.content}
   end
@@ -417,12 +408,13 @@ defmodule LangChain.ChatModels.ChatGoogleAI do
   end
 
   def for_api(%ToolResult{} = result) do
-    content_string =
-      result.content
-      |> ContentPart.parts_to_string()
+    # Separate text parts from media parts (file, image, etc.)
+    {text_parts, media_parts} = separate_content_parts(result.content)
+
+    text_string = ContentPart.parts_to_string(text_parts)
 
     content =
-      content_string
+      text_string
       |> Jason.decode()
       |> case do
         {:ok, data} ->
@@ -431,13 +423,12 @@ defmodule LangChain.ChatModels.ChatGoogleAI do
 
         {:error, %Jason.DecodeError{}} ->
           # assume the result is intended to be a string and return it as-is
-          %{"result" => content_string}
+          %{"result" => text_string}
       end
 
-    # There is no explanation for why they want it nested like this. Odd.
-    #
+    # Build the base function response
     # https://ai.google.dev/gemini-api/docs/function-calling#expandable-7
-    %{
+    base_response = %{
       "functionResponse" => %{
         "name" => result.name,
         "response" => %{
@@ -446,6 +437,19 @@ defmodule LangChain.ChatModels.ChatGoogleAI do
         }
       }
     }
+
+    # Uses the existing for_api/1 function for ContentPart, to convert each media part
+    # to inline_data format for the API
+    media_api_parts = Enum.map(media_parts, &for_api/1)
+
+    # If there are media parts, add them to the functionResponse
+    # Gemini 3+ supports multimodal content in function responses via parts
+    # https://ai.google.dev/gemini-api/docs/function-calling
+    if media_api_parts != [] do
+      put_in(base_response, ["functionResponse", "parts"], media_api_parts)
+    else
+      base_response
+    end
   end
 
   def for_api(%Function{} = function) do
@@ -472,6 +476,20 @@ defmodule LangChain.ChatModels.ChatGoogleAI do
   def for_api(%NativeTool{name: name, configuration: nil}) do
     name
   end
+
+  # Separates content parts into text parts and media parts (file, image, etc.)
+  defp separate_content_parts(content) when is_list(content) do
+    Enum.split_with(content, fn
+      %ContentPart{type: type} when type in [:text, :thinking] -> true
+      %ContentPart{} -> false
+    end)
+  end
+
+  defp separate_content_parts(content) when is_binary(content) do
+    {[ContentPart.text!(content)], []}
+  end
+
+  defp separate_content_parts(nil), do: {[], []}
 
   @doc """
   Calls the Google AI API passing the ChatGoogleAI struct with configuration, plus
