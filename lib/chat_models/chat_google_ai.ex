@@ -372,6 +372,8 @@ defmodule LangChain.ChatModels.ChatGoogleAI do
       case Keyword.get(part.options || [], :media, nil) do
         :pdf ->
           "application/pdf"
+        :csv ->
+          "text/csv"
 
         other ->
           message = "Received unsupported media type for ContentPart: #{inspect(other)}"
