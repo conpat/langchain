@@ -2,7 +2,7 @@ defmodule LangChain.Chains.LLMChain.Mode do
   @moduledoc """
   Behaviour for LLMChain execution modes.
 
-  A mode controls the execution loop of an LLMChain — how many times the LLM
+  A mode controls the execution loop of an LLMChain - how many times the LLM
   is called, when tools are executed, and under what conditions the loop
   terminates.
 
@@ -15,7 +15,18 @@ defmodule LangChain.Chains.LLMChain.Mode do
 
   ## Custom Modes
 
-  Implement this behaviour to define custom execution loops:
+  Implement this behaviour to define custom execution loops. The simplest
+  approach is to import `LangChain.Chains.LLMChain.Mode.Steps` and compose
+  the provided step functions into a pipeline. Each step follows a consistent
+  contract:
+
+  - `{:continue, chain}` - keep processing, pipe into the next step
+  - Any other tuple (`:ok`, `:pause`, `:error`) — terminal result, passed through unchanged
+
+  This means a pipeline short-circuits automatically when any step returns a
+  terminal value.
+
+  ### Minimal Example
 
       defmodule MyApp.Modes.Custom do
         @behaviour LangChain.Chains.LLMChain.Mode
@@ -30,6 +41,49 @@ defmodule LangChain.Chains.LLMChain.Mode do
           end
         end
       end
+
+  ### Composable Example Using Steps
+
+  The built-in modes are all composed from `Steps` functions. You can do the
+  same to build a mode that adds custom logic at any point in the pipeline.
+
+  For example, a mode that loops like `WhileNeedsResponse` but adds a custom
+  check after each tool execution round:
+
+      defmodule MyApp.Modes.WithAudit do
+        @behaviour LangChain.Chains.LLMChain.Mode
+        import LangChain.Chains.LLMChain.Mode.Steps
+
+        @impl true
+        def run(chain, opts) do
+          chain = ensure_mode_state(chain)
+
+          {:continue, chain}
+          |> execute_tools()
+          |> call_llm()
+          |> check_max_runs(opts)
+          |> audit_step(opts)
+          |> continue_or_done(&run/2, opts)
+        end
+
+        # A custom step - same contract as the built-in steps:
+        # accept {:continue, chain} and return {:continue, chain} or a terminal.
+        defp audit_step({:continue, chain}, _opts) do
+          run_count = get_run_count(chain)
+          Logger.info("LLM call #\#{run_count} completed")
+          {:continue, chain}
+        end
+
+        defp audit_step(terminal, _opts), do: terminal
+      end
+
+  The pattern is always the same: start with `{:continue, chain}`, pipe
+  through as many steps as needed, and end with `continue_or_done/3` to
+  decide whether to loop.
+
+  See `LangChain.Chains.LLMChain.Mode.Steps` for the full list of available
+  step functions. The built-in modes (`WhileNeedsResponse`, `UntilSuccess`,
+  `Step`, `UntilToolUsed`) also serve as practical examples to reference.
 
   ## Return Types
 
