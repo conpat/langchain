@@ -376,7 +376,8 @@ defmodule LangChain.ChatModels.ChatGoogleAI do
     }
   end
 
-  # Supported document types: pdf: https://ai.google.dev/gemini-api/docs/document-processing
+  # Supported document types: pdf: https://ai.google.dev/gemini-api/docs/document-processing#inline_data
+  # Supported document types: csv: https://ai.google.dev/gemini-api/docs/file-input-methods#text
   def for_api(%ContentPart{type: :file} = part) do
     mime_type =
       case Keyword.get(part.options || [], :media, nil) do
