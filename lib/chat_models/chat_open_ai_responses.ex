@@ -998,6 +998,26 @@ defmodule LangChain.ChatModels.ChatOpenAIResponses do
     end
   end
 
+  def do_process_response(_model, %{
+        "type" => "response.reasoning_summary_text.delta",
+        "delta" => delta_text
+      }) do
+    data = %{
+      content: ContentPart.new!(%{type: :thinking, content: delta_text}),
+      status: :incomplete,
+      role: :assistant,
+      index: 0
+    }
+
+    case MessageDelta.new(data) do
+      {:ok, message} ->
+        message
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:error, LangChainError.exception(changeset)}
+    end
+  end
+
   def do_process_response(
         _model,
         %{
@@ -1250,7 +1270,6 @@ defmodule LangChain.ChatModels.ChatOpenAIResponses do
     "response.web_search_call.completed",
     "response.reasoning_summary_part.added",
     "response.reasoning_summary_part.done",
-    "response.reasoning_summary_text.delta",
     "response.reasoning_summary_text.done",
     "response.image_generation_call.completed",
     "response.image_generation_call.generating",
