@@ -517,13 +517,11 @@ defmodule LangChain.ChatModels.ChatOpenAIResponses do
     Enum.map(tool_calls, &for_api(model, &1))
   end
 
-  def for_api(%ChatOpenAIResponses{} = _model, %ToolResult{type: :function} = result) do
+  def for_api(%ChatOpenAIResponses{} = model, %ToolResult{type: :function} = result) do
     # a ToolResult becomes a stand-alone %Message{role: :tool} response.
-    [%ContentPart{type: :text, content: output, options: []}] = result.content
-
     %{
       "call_id" => result.tool_call_id,
-      "output" => output,
+      "output" => content_parts_for_api(model, result.content),
       "type" => "function_call_output"
     }
   end
