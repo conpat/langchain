@@ -878,6 +878,12 @@ defmodule LangChain.ChatModels.ChatGoogleAI do
      LangChainError.exception(type: "invalid_json", message: error_message, original: response)}
   end
 
+  # Gemini 3 "thinking" models emit a final metadata-only message containing
+  # only usageMetadata (no candidates). Safe to ignore.
+  def do_process_response(_model, %{"usageMetadata" => _} = _metadata, _) do
+    :skip
+  end
+
   def do_process_response(_model, other, _) do
     Logger.error("Trying to process an unexpected response. #{inspect(other)}")
 
